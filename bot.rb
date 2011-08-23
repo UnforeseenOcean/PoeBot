@@ -47,7 +47,10 @@ module PoeBot
 		def unload
 			if @instance && @loop_thread
 				@loop_thread.raise(Plugin::ExitException)
-				@loop_thread.join
+				unless @loop_thread.join(10)
+					puts "Stopping plugin :#{name} timed out. Killing it..."
+					@loop_thread.kill
+				end
 			end
 			
 		ensure
@@ -80,7 +83,7 @@ module PoeBot
 	
 	@plugins = {}
 	@messages = {}
-	@messages_mutex = Mutex.new
+	@message_mutex = Mutex.new
 	@message_queue = []
 	
 	class << self
@@ -89,12 +92,15 @@ module PoeBot
 		end
 		
 		def dispatch(message)
-			@message_queue.push(message)
+			@message_mutex.synchronize do
+				@message_queue.push(message)
+			end
+			
 			@message_thread.run
 		end
 		
 		def listen(message, block)
-			@messages_mutex.synchronize do
+			@message_mutex.synchronize do
 				unless @messages.has_key?(message)
 					@messages[message] = []
 				end
@@ -103,7 +109,7 @@ module PoeBot
 		end
 		
 		def unlisten(message, block)
-			@messages_mutex.synchronize do
+			@message_mutex.synchronize do
 				@messages[message].delete(block)
 				
 				if @messages[message].empty?
@@ -157,25 +163,31 @@ module PoeBot
 			end
 		end
 		
+		def quit
+			@main_thread.raise(Plugin::ExitException)
+		end
+		
 		def start
 			load_plugins
 			
 			@message_thread = Thread.new do
 				safe_loop('message queue') do
 					while !@message_queue.empty?
-						message = @message_queue.pop
+						handlers = nil
+						arguments = nil
 						
-						if message
-							handlers = nil
+						@message_mutex.synchronize do
+							message = @message_queue.pop
 							
-							@messages_mutex.synchronize do
-								handlers = @messages[message.first]
+							if message
+								handlers = @messages[message.first] 
+								arguments = message.last
 							end
-							
-							if handlers
-								handlers.each do |handler|
-									handler.call(*message.last)
-								end
+						end
+						
+						if handlers
+							handlers.each do |handler|
+								handler.call(*arguments)
 							end
 						end
 					end
@@ -186,7 +198,19 @@ module PoeBot
 			
 			@plugins.values.each(&:start)
 			
+			@main_thread = Thread.current
 			sleep
+			
+		rescue Plugin::ExitException			
+			@plugins.values.each do |data|
+				begin
+					unload_plugin(data.name)
+				rescue Exception => e
+					break if SignalException === e
+					
+					puts "Exception when unloading #{data.name}: #{e.inspect}\n#{e.backtrace.join("\n")}\n"
+				end
+			end
 		end
 	end
 end

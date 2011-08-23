@@ -23,7 +23,10 @@ class Commands < PoeBot::Plugin
 						bot.load_plugin(name)
 						bot[name].start
 					end
-				
+				when 'quit'
+					puts "Shuting down..."
+					bot.quit
+					raise PoeBot::Plugin::ExitException
 				when 'unload'
 					name = args.first.to_sym
 					if name == :commands
@@ -32,7 +35,13 @@ class Commands < PoeBot::Plugin
 						bot.unload_plugin(name)
 					end
 				else
-					puts "Unknown command '#{command}'"
+					if command[0] == '.'
+						dispatching = [command[1..-1].to_sym, *args.map { |arg| eval arg }]
+						puts "Dispatching #{dispatching.map(&:inspect).join(', ')}"
+						dispatch(*dispatching)
+					else
+						puts "Unknown command '#{command}'"
+					end
 			end
 		end
 	end
