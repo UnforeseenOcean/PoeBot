@@ -1,10 +1,9 @@
 class IRC < PoeBot::Plugin
 	listen :update do |message|
-		puts "Writing out #{message} as an action"
+		puts "[IRC] PoeBot - #{message}"
 	end
 	
-	def loop
-		#dispatch :update, "Hello there!"
-		sleep 2
+	listen :say do |message|
+		puts "[IRC] <PoeBot> #{message}"
 	end
 end

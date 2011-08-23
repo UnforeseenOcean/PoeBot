@@ -19,6 +19,11 @@ module PoeBot
 		def dispatch(message, *args)
 			@bot.dispatch([message, args])
 		end
+		
+		attr_reader :bot
+		
+		def unload
+		end
 	end
 	
 	class PluginData
@@ -30,26 +35,29 @@ module PoeBot
 			@name = name
 			@listens_to = []
 			
-			puts "Loaded plugin '#{name}'."
+			puts "Loaded plugin :#{name}"
 		end
 		
 		def listen(message, block)
 			@listens_to << [message, block]
-			puts "#{name} is listening to #{message}"
+			puts ":#{name} is listening to ##{message}"
 			@bot.listen(message, block)
 		end
 		
 		def unload
-			if @instance
-				if @loop_thread
-					@loop_thread.raise(ExitException)
-					@loop_thread.join
-				end
-				
-				@instance.unload
+			if @instance && @loop_thread
+				@loop_thread.raise(Plugin::ExitException)
+				@loop_thread.join
 			end
 			
-			puts "Unloaded plugin '#{name}'."
+		ensure
+			@instance.unload if @instance
+			
+			@listens_to.each do |pair|
+				@bot.unlisten(*pair)
+			end
+			
+			puts "Unloaded plugin :#{name}"
 		end
 		
 		def new_instance
@@ -108,6 +116,10 @@ module PoeBot
 			@plugins[@current_plugin_name] = PluginData.new(self, @current_plugin_name, klass)
 		end
 		
+		def [](name)
+			@plugins[name]
+		end
+		
 		def load_plugin(name, filename = "plugins/#{name}.rb")
 			@current_plugin_name = name
 			load(filename, true)
@@ -140,7 +152,7 @@ module PoeBot
 							break
 					end
 					
-					puts "Exception in #{name}: #{e.inspect}\n#{e.backtrace.join('\n')}\n"
+					puts "Exception in #{name}: #{e.inspect}\n#{e.backtrace.join("\n")}\n"
 				end
 			end
 		end
@@ -174,22 +186,7 @@ module PoeBot
 			
 			@plugins.values.each(&:start)
 			
-			safe_loop('command thread') do
-				print "> "
-				args = gets
-				args = args.split(' ')
-				
-				unless args.empty?
-					command = args.shift
-					case command
-						when 'load'
-							unload_plugin(args.first)
-							load_plugin(args.first)
-						else
-							puts "Unknown command '#{command}'"
-					end
-				end
-			end
+			sleep
 		end
 	end
 end
