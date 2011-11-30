@@ -4,16 +4,50 @@ module PoeBot
 		class ExitException < Exception
 		end
 		
+		def self.data
+			PoeBot.data(self)
+		end
+		
 		def self.listen(message, &block)
-			PoeBot.data(self).listen(message, block)
+			data.listen(message, block)
 		end
 		
 		def self.inherited(subclass)
 			PoeBot.register(subclass)
 		end
 		
+		def self.uses(*plugins)
+			plugins.each do |plugin|
+				data.uses(plugin)
+			end
+		end
+		
+		def thread(&block)
+			result = Thread.new(&block)
+			self.class.data.add_thread(result)
+			result
+		end
+		
+		def log(*messages)
+			PoeBot.log(*messages)
+		end
+		
+		def safe_loop
+			@bot.safe_loop("plugin '#{self.class.data.name}'") do
+				yield
+			end
+		end
+		
+		def plugin(name)
+			PoeBot[name].instance
+		end
+		
 		def initialize(bot)
 			@bot = bot
+			start
+		end
+		
+		def start
 		end
 		
 		def dispatch(message, *args)
@@ -27,15 +61,47 @@ module PoeBot
 	end
 	
 	class PluginData
-		attr :plugin_class, :instance, :name
+		attr :plugin_class, :instance, :name, :used_by
 		
 		def initialize(bot, name, plugin_class)
 			@bot = bot
 			@plugin_class = plugin_class
 			@name = name
 			@listens_to = []
+			@used_by = []
+			@uses = []
+			@threads = []
 			
-			puts "Loaded plugin :#{name}"
+			@bot.log "Loaded plugin :#{name}"
+		end
+		
+		def inspect
+			"#<:#{@name} \##{__id__.to_s(16)} :: #{@plugin_class.inspect} :: uses: #{@uses.inspect}>"
+		end
+		
+		def add_thread(thread)
+			@threads << thread
+		end
+		
+		def uses(plugin_name)
+			plugin_data = @bot[plugin_name]
+			
+			unless plugin_data
+				@bot.load_plugin(plugin_name)
+				plugin_data = @bot[plugin_name]
+			end
+			
+			raise("Unable to load plugin: #{plugin}") unless plugin_data
+			plugin_data.used_by(self)
+			@uses << plugin_data
+		end
+		
+		def used_by(plugin_data)
+			@used_by << plugin_data
+		end
+		
+		def unused_by(plugin_data)
+			@used_by.delete(plugin_data)
 		end
 		
 		def listen(message, block)
@@ -44,46 +110,68 @@ module PoeBot
 			@bot.listen(message, block)
 		end
 		
-		def unload
-			if @instance && @loop_thread
-				@loop_thread.raise(Plugin::ExitException)
-				unless @loop_thread.join(10)
-					puts "Stopping plugin :#{name} timed out. Killing it..."
-					@loop_thread.kill
+		def unload(origin = nil)
+			raise "Recursive unloading with #{self}:#{@name}" if origin == self
+			
+			if @used_by.empty?
+				simple_unload
+			else
+				@used_by.first.unload(origin || self)
+				unload
+			end
+		end
+		
+		def simple_unload
+			return false unless @used_by.empty?
+			
+			if @instance
+				@threads.each do |thread|
+					thread.raise(Plugin::ExitException)
+					unless thread.join(10)
+						PoeBot.log "Thread in plugin :#{name} timed out. Killing it..."
+						thread.kill
+					end
 				end
+				@threads.clear
 			end
 			
 		ensure
-			@instance.unload if @instance
-			
 			@listens_to.each do |pair|
 				@bot.unlisten(*pair)
 			end
 			
+			@instance.unload if @instance
+			
+			@uses.each do |data|
+				data.unused_by(self)
+			end
+			
+			@bot.unloaded_plugin(name)
+			
 			puts "Unloaded plugin :#{name}"
 		end
 		
-		def new_instance
-			@instance = @plugin_class.new(@bot)
-		end
-		
-		def start
-			@instance = @plugin_class.new(@bot)
+		def start(origin = nil)
+			return if @started
 			
-			if @instance.respond_to?(:loop)
-				@loop_thread = Thread.new do
-					
-					@bot.safe_loop("plugin '#{@name}'") do
-						@instance.loop
-					end
-				end
+			raise "Recursive starting with #{self}:#{@name}" if origin == self
+			
+			@uses.each do |data|
+				data.start(origin || self)
 			end
+			
+			@started = true
+			
+			@bot.log "Starting plugin :#{@name}"
+			
+			@instance = @plugin_class.new(@bot)
 		end
 	end
 	
 	@plugins = {}
 	@messages = {}
 	@message_mutex = Mutex.new
+	@log_mutex = Mutex.new
 	@message_queue = []
 	
 	class << self
@@ -127,16 +215,21 @@ module PoeBot
 		end
 		
 		def load_plugin(name, filename = "plugins/#{name}.rb")
+			return if @plugins[name]
+			old_name = @current_plugin_name
 			@current_plugin_name = name
 			load(filename, true)
 		ensure
-			@current_plugin_name = nil
+			@current_plugin_name = old_name
 		end
 		
 		def unload_plugin(name)
 			data = @plugins[name]
 			return unless data
 			data.unload
+		end
+		
+		def unloaded_plugin(name)
 			@plugins.delete(name)
 		end
 		
@@ -158,8 +251,14 @@ module PoeBot
 							break
 					end
 					
-					puts "Exception in #{name}: #{e.inspect}\n#{e.backtrace.join("\n")}\n"
+					log "Exception in #{name}: #{e.inspect}\n#{e.backtrace.join("\n")}\n"
 				end
+			end
+		end
+		
+		def log(*messages)
+			@log_mutex.synchronize do
+				puts *messages.map { |message| "[#{Time.now.strftime('%R')}] #{message}" }
 			end
 		end
 		
@@ -167,12 +266,16 @@ module PoeBot
 			@main_thread.raise(Plugin::ExitException)
 		end
 		
-		def start
-			load_plugins
-			
+		def has_messages?
+			@message_mutex.synchronize do
+				!@message_queue.empty?
+			end
+		end
+		
+		def message_loop
 			@message_thread = Thread.new do
 				safe_loop('message queue') do
-					while !@message_queue.empty?
+					while has_messages?
 						handlers = nil
 						arguments = nil
 						
@@ -195,8 +298,16 @@ module PoeBot
 					sleep
 				end
 			end
+		end
+		
+		def start
+			message_loop
+			
+			load_plugins
 			
 			@plugins.values.each(&:start)
+			
+			log "Bot is running!"
 			
 			@main_thread = Thread.current
 			sleep
@@ -208,7 +319,7 @@ module PoeBot
 				rescue Exception => e
 					break if SignalException === e
 					
-					puts "Exception when unloading #{data.name}: #{e.inspect}\n#{e.backtrace.join("\n")}\n"
+					log "Exception when unloading #{data.name}: #{e.inspect}\n#{e.backtrace.join("\n")}\n"
 				end
 			end
 		end
