@@ -2,12 +2,13 @@ require 'mechanize'
 require 'nokogiri'
 
 class Agent
-	def initialize(config)
+	def initialize(config, public = false)
 		@config = config
 		@agent = Mechanize.new
 		@agent.max_history = 0
+		@public = public
 		
-		login
+		login unless @public
 	end
 	
 	def login
@@ -17,10 +18,12 @@ class Agent
 	
 	def get(location, &block)
 		@agent.get('http://www.pathofexile.com/' + location) do |page|
-			if page.root.at_css('form#login-area')
-				login
-				
-				get(location, &block)
+			unless @public
+				if page.root.at_css('form#login-area')
+					login
+					
+					get(location, &block)
+				end
 			end
 			
 			block.call(page)
@@ -39,5 +42,9 @@ class AgentFactory < PoeBot::Plugin
 	
 	def generate
 		Agent.new(@config)
+	end
+	
+	def generate_public
+		Agent.new(@config, true)
 	end
 end

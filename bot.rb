@@ -105,9 +105,9 @@ module PoeBot
 		end
 		
 		def listen(message, block)
-			@listens_to << [message, block]
+			@listens_to << [message, block, self]
 			puts ":#{name} is listening to ##{message}"
-			@bot.listen(message, block)
+			@bot.listen(message, block, self)
 		end
 		
 		def unload(origin = nil)
@@ -187,18 +187,18 @@ module PoeBot
 			@message_thread.run
 		end
 		
-		def listen(message, block)
+		def listen(message, block, data)
 			@message_mutex.synchronize do
 				unless @messages.has_key?(message)
 					@messages[message] = []
 				end
-				@messages[message] << block
+				@messages[message] << [block, data]
 			end
 		end
 		
-		def unlisten(message, block)
+		def unlisten(message, block, data)
 			@message_mutex.synchronize do
-				@messages[message].delete(block)
+				@messages[message].delete([block, data])
 				
 				if @messages[message].empty?
 					@messages.delete(message)
@@ -290,7 +290,9 @@ module PoeBot
 						
 						if handlers
 							handlers.each do |handler|
-								handler.call(*arguments)
+								instance = handler.last.instance
+								next unless instance
+								instance.instance_exec(*arguments, &handler.first)
 							end
 						end
 					end

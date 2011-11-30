@@ -40,7 +40,7 @@ class Posts < PoeBot::Plugin
 			beta_only = page.root.at_css('div#login-container') ? true : false
 			@beta_forums[id] = beta_only
 			
-			log "Found forum #{id} to be #{beta_only ? "beta members only" : "public"}"
+			#log "Found forum #{id} to be #{beta_only ? "beta members only" : "public"}"
 		end
 	end
 
