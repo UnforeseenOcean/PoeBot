@@ -10,8 +10,8 @@ class Commands < PoeBot::Plugin
 		
 		safe_loop do
 			print ">"
-			args = gets
-			args = args.split(' ')
+			line = gets
+			args = line.split(' ')
 			
 			unless args.empty?
 				command = args.shift
@@ -46,7 +46,7 @@ class Commands < PoeBot::Plugin
 					else
 						if command[0] == '.'
 							begin
-								dispatching = [command[1..-1].to_sym, *args.map { |arg| Object.new.instance_eval arg }]
+								dispatching = [command[1..-1].to_sym, *Object.new.instance_eval("[#{line[(command.length + 1)..-1]}]")]
 								puts "Dispatching #{dispatching.map(&:inspect).join(', ')}"
 								dispatch(*dispatching)
 							rescue Exception => e

@@ -33,7 +33,7 @@ module PoeBot
 		end
 		
 		def safe_loop
-			@bot.safe_loop("plugin '#{self.class.data.name}'") do
+			@__bot__.safe_loop("plugin '#{self.class.data.name}'") do
 				yield
 			end
 		end
@@ -43,18 +43,20 @@ module PoeBot
 		end
 		
 		def initialize(bot)
-			@bot = bot
+			@__bot__ = bot
 			start
+		end
+		
+		def bot
+			@__bot__
 		end
 		
 		def start
 		end
 		
 		def dispatch(message, *args)
-			@bot.dispatch([message, args])
+			@__bot__.dispatch([message, args])
 		end
-		
-		attr_reader :bot
 		
 		def unload
 		end
@@ -124,7 +126,13 @@ module PoeBot
 		def simple_unload
 			return false unless @used_by.empty?
 			
+			@listens_to.each do |pair|
+				@bot.unlisten(*pair)
+			end
+			
 			if @instance
+				@instance.unload
+				
 				@threads.each do |thread|
 					thread.raise(Plugin::ExitException)
 					unless thread.join(10)
@@ -132,16 +140,11 @@ module PoeBot
 						thread.kill
 					end
 				end
+				
 				@threads.clear
 			end
 			
 		ensure
-			@listens_to.each do |pair|
-				@bot.unlisten(*pair)
-			end
-			
-			@instance.unload if @instance
-			
 			@uses.each do |data|
 				data.unused_by(self)
 			end
