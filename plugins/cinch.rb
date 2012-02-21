@@ -3,19 +3,23 @@ require 'cinch'
 class IRC < PoeBot::Plugin
 	uses :settings
 	
+	def started?
+		@bot.channels.first
+	end
+	
 	listen :update do |message|
 		log "PoeBot - #{message}"
-		@bot.channels.first.action("- " + message)
+		@bot.channels.first.action("- " + message) if started?
 	end
 	
 	listen :do do |message|
 		log "PoeBot #{message}"
-		@bot.channels.first.action(message)
+		@bot.channels.first.action(message) if started?
 	end
 	
 	listen :say do |message|
 		log "<PoeBot> #{message}"
-		@bot.channels.first.msg(message)
+		@bot.channels.first.msg(message) if started?
 	end
 	
 	def unload

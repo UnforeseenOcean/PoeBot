@@ -1,23 +1,30 @@
 require 'mechanize'
 require 'nokogiri'
+require 'json'
 
 class Agent
-	def initialize(config, public = false)
+	def initialize(config, cert_store, public = false)
 		@config = config
 		@agent = Mechanize.new
 		@agent.max_history = 0
+		@agent.cert_store = cert_store
+
 		@public = public
 		
 		login unless @public
 	end
 	
 	def login
-		login_result = JSON.parse(@agent.post('http://www.pathofexile.com/login', @config).body)
-		raise "Invalid login #{login_result.inspect}" unless login_result.has_key?('redirect')
+		@agent.max_history = 1
+		@agent.post('https://www.pathofexile.com/login', @config)
+		invalid = @agent.current_page.root.at_css('#login')
+		@agent.max_history = 0
+		raise "Invalid login #{login_result.inspect}" if invalid
+		sleep 2
 	end
 	
 	def get(location, &block)
-		@agent.get('http://www.pathofexile.com/' + location) do |page|
+		return @agent.get('http://www.pathofexile.com/' + location) do |page|
 			unless @public
 				if page.root.at_css('form#login-area')
 					login
@@ -26,7 +33,7 @@ class Agent
 				end
 			end
 			
-			block.call(page)
+			block.call(page) if block
 		end
 	end
 end
@@ -37,14 +44,21 @@ class AgentFactory < PoeBot::Plugin
 	def start
 		settings = plugin(:settings)
 		
-		@config = {'location' => 'http://www.pathofexile.com/logout', 'login_email' => settings['Email'], 'login_password' => settings['Password'], 'remember_me' => '0'}
+		@config = {'location' => 'http://www.pathofexile.com/logout', 'login_email' => settings['Email'], 'login_password' => settings['Password'], 'login_submit_from_login_area' => '1', 'redir' => '/logout'}
+	
+		@cert_store = OpenSSL::X509::Store.new
+		@cert_store.add_file 'cacert.pem'
 	end
 	
 	def generate
-		Agent.new(@config)
+		Agent.new(@config, @cert_store)
+	end
+	
+	def cert_store
+		@cert_store
 	end
 	
 	def generate_public
-		Agent.new(@config, true)
+		Agent.new(@config, @cert_store, true)
 	end
 end

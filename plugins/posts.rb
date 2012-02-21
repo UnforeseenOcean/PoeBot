@@ -20,8 +20,7 @@ class Posts < PoeBot::Plugin
 		
 		@beta_forums = {}
 		@agent = plugin(:agent).generate
-		@public_agent = Mechanize.new
-		@public_agent.max_history = 0
+		@public_agent = plugin(:agent).generate_public
 		
 		thread do
 			safe_loop do
@@ -36,7 +35,7 @@ class Posts < PoeBot::Plugin
 		if @beta_forums.has_key?(id)
 			@beta_forums[id]
 		else
-			page = @public_agent.get("http://www.pathofexile.com/forum/view-forum/#{id}/")
+			page = @public_agent.get("forum/view-forum/#{id}/")
 			beta_only = page.root.at_css('div#login-container') ? true : false
 			@beta_forums[id] = beta_only
 			
