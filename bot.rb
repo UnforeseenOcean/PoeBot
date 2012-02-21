@@ -283,7 +283,7 @@ module PoeBot
 						arguments = nil
 						
 						@message_mutex.synchronize do
-							message = @message_queue.pop
+							message = @message_queue.shift
 							
 							if message
 								handlers = @messages[message.first] 

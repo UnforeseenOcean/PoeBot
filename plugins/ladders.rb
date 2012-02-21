@@ -15,6 +15,7 @@ class Ladder
 		log("Starting league #{@title}")
 		
 		@plugin.thread do
+			sleep(5 + rand(10))
 			@plugin.safe_loop do
 				loop
 			end
@@ -43,6 +44,12 @@ class Ladder
 		page.root.at_css('table.striped-table').css('tr')[1..-1].map do |spot|
 			columns = spot.css('td')
 			{:rank => columns[0].content.to_i, :name => columns[2].content, :class => columns[3].content, :level => columns[4].content.to_i}
+		end
+	end
+	
+	def message_spots(spots)
+		spots.map { |spot| "#{spot[:rank]}. #{spot[:name]}" }.each_slice(5) do |slice|
+			message(slice.join(', '))
 		end
 	end
 	
@@ -118,9 +125,7 @@ class Ladder
 				end
 				
 				if messages.size > 3
-					spots.map { |spot| "#{spot[:rank]}. #{spot[:name]}" }.each_slice(5) do |slice|
-						message(slice.join(', '))
-					end
+					message_spots(spots)
 				else
 					messages.each do |message_text|
 						message(message_text)
@@ -157,7 +162,7 @@ class Ladder
 			@data = spots
 		end
 		
-		sleep 60
+		sleep 180
 	end
 end
 
@@ -165,11 +170,18 @@ class Ladders < PoeBot::Plugin
 	uses :agent, :settings
 	
 	listen :command do |command, parameters|
-		parameters = parameters.split(' ')
+		parameter_array = parameters.split(' ')
 		
 		case command
+			when "top"
+				league = find_league(parameters)
+				next unless league
+				
+				ladder = get_ladder(league)
+				ladder.message_spots(ladder.get_spots[0...10])
+				
 			when "leader"
-				league = find_league(parameters[0])
+				league = find_league(parameters)
 				next unless league
 				
 				leader = get_ladder(league).get_spots.first
@@ -177,8 +189,8 @@ class Ladders < PoeBot::Plugin
 				dispatch(:say, "The leader in #{league} is #{leader[:name]} (a level #{leader[:level]} #{leader[:class]}).")
 				
 			when "rank"
-				rank = parameters[0].to_i
-				league = find_league(parameters[1])
+				rank = parameter_array[0].to_i
+				league = find_league(parameter_array[1..-1].join(' '))
 				next unless league
 				
 				page = ((rank - 1) / 20) + 1
