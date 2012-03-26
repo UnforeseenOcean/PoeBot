@@ -53,6 +53,8 @@ class Keys < PoeBot::Plugin
 		
 		thread do
 			safe_loop do
+				sleep 1200
+				
 				message = nil
 				
 				player_queue.synchronize do
@@ -69,8 +71,6 @@ class Keys < PoeBot::Plugin
 				if message
 					dispatch(:update, message)
 				end
-				
-				sleep 1200
 			end
 		end
 	end

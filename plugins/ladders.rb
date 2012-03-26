@@ -54,6 +54,8 @@ class Ladder
 	end
 	
 	def loop
+		sleep 180
+		
 		@agent.get(@url) do |page|
 			countdown = page.root.at_css('#leagueCountdownBox')
 			
@@ -74,61 +76,66 @@ class Ladder
 				end
 			end
 			
-			next if @state == :ended
-			
 			spots = map_spots(page)[0...(@top_number)]
 			
-			if @data
-				notified = {}
-				
-				messages = []
-				
-				leader = spots.first	
-				
-				if @level
-					if leader[:level] > @level
-						message("The leader #{leader[:name]}, is now level #{leader[:level]}.") if @level
-						
+			if spots.empty?
+				if @state == :ended
+					log("Turning off league #{@title}")
+					raise PoeBot::Plugin::ExitException
+				end
+			else
+				if @data
+					notified = {}
+					
+					messages = []
+					
+					leader = spots.first	
+					
+					if @level
+						if leader[:level] > @level
+							message("The leader #{leader[:name]}, is now level #{leader[:level]}.") if @level
+							
+							@level = leader[:level]
+						end
+					else
 						@level = leader[:level]
 					end
-				else
-					@level = leader[:level]
-				end
-				
-				@top_number.times do |spot|
-					old_obj = @data[spot]
-					new_obj = spots[spot]
 					
-					next unless old_obj
-					next unless new_obj
-					
-					if old_obj[:name] != new_obj[:name]
-						new_in_old = find_spot(@data, new_obj)
-						old_in_new = find_spot(spots, old_obj)
+					@top_number.times do |spot|
+						old_obj = @data[spot]
+						new_obj = spots[spot]
 						
-						next if notified[new_obj]
+						next unless old_obj
+						next unless new_obj
 						
-						if notified[old_in_new]
-							message_text = "#{new_obj[:name]} has moved from #{new_in_old ? "##{new_in_old[:rank]}" : "out of top #{@top_number}"} to ##{new_obj[:rank]}."
-						else
-							message_text = "#{new_obj[:name]} (previously #{new_in_old ? "##{new_in_old[:rank]}" : "out of top #{@top_number}"}) has stolen ##{new_obj[:rank]} from #{old_obj[:name]} (now #{old_in_new ? "##{old_in_new[:rank]}" : "out of top #{@top_number}"})."
+						if old_obj[:name] != new_obj[:name]
+							new_in_old = find_spot(@data, new_obj)
+							old_in_new = find_spot(spots, old_obj)
 							
-							if old_in_new
-								notified[old_in_new] = true
+							next if notified[new_obj]
+							
+							if notified[old_in_new]
+								message_text = "#{new_obj[:name]} has moved from #{new_in_old ? "##{new_in_old[:rank]}" : "out of top #{@top_number}"} to ##{new_obj[:rank]}."
+							else
+								message_text = "#{new_obj[:name]} (previously #{new_in_old ? "##{new_in_old[:rank]}" : "out of top #{@top_number}"}) has stolen ##{new_obj[:rank]} from #{old_obj[:name]} (now #{old_in_new ? "##{old_in_new[:rank]}" : "out of top #{@top_number}"})."
+								
+								if old_in_new
+									notified[old_in_new] = true
+								end
 							end
+							
+							messages << message_text
+							
+							notified[new_obj] = true
 						end
-						
-						messages << message_text
-						
-						notified[new_obj] = true
 					end
-				end
-				
-				if messages.size > 3
-					message_spots(spots)
-				else
-					messages.each do |message_text|
-						message(message_text)
+					
+					if messages.size > 3
+						message_spots(spots)
+					else
+						messages.each do |message_text|
+							message(message_text)
+						end
 					end
 				end
 			end
@@ -161,8 +168,6 @@ class Ladder
 			
 			@data = spots
 		end
-		
-		sleep 180
 	end
 end
 
@@ -218,9 +223,9 @@ class Ladders < PoeBot::Plugin
 		
 		thread do
 			safe_loop do
-				refresh_leagues
-				
 				sleep 600
+				
+				refresh_leagues
 			end
 		end
 	end

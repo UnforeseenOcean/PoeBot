@@ -24,9 +24,9 @@ class Posts < PoeBot::Plugin
 		
 		thread do
 			safe_loop do
-				refresh
+				sleep 60
 				
-				sleep 15
+				refresh
 			end
 		end
 	end
