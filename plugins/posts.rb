@@ -15,6 +15,7 @@ class Posts < PoeBot::Plugin
 			"Qarl" => nil,
 			"Thomas" => nil,
 			"Ari" => nil,
+			"Samantha" => nil,
 			"MaxS" => nil
 		}
 		

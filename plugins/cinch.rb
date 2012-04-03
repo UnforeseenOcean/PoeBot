@@ -42,7 +42,7 @@ class IRC < PoeBot::Plugin
 			on :message, /^!(.+)/ do |m, message|
 				command = message.split(' ')[0].downcase
 				rest = message[(command.length + 1)..-1]
-				instance.dispatch(:command, command, rest.strip)
+				instance.dispatch(:command, command, rest ? rest.strip : nil)
 			end
 		end
 		
