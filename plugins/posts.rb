@@ -7,6 +7,14 @@ class Posts < PoeBot::Plugin
 			"Jonathan" => nil,
 			"Mark_GGG" => nil,
 			"Joel_GGG" => nil,
+			"BrianWeissman" => nil,
+			"Andrew_GGG" => nil,
+			"Damien_GGG" => nil,
+			"Jess_GGG" => nil,
+			"Ammon_GGG" => nil,
+			"Edwin_GGG" => nil,
+			"Robbie_GGG" => nil,
+			"Support" => nil,
 			"Erik" => nil,
 			"Rhys" => nil,
 			"Russell" => nil,
@@ -19,7 +27,6 @@ class Posts < PoeBot::Plugin
 			"MaxS" => nil
 		}
 		
-		@beta_forums = {}
 		@agent = plugin(:agent).generate
 		@public_agent = plugin(:agent).generate_public
 		
@@ -32,30 +39,31 @@ class Posts < PoeBot::Plugin
 		end
 	end
 	
-	def beta_only?(id)
-		if @beta_forums.has_key?(id)
-			@beta_forums[id]
-		else
-			page = @public_agent.get("forum/view-forum/#{id}/")
-			beta_only = page.root.at_css('div#login-container') ? true : false
-			@beta_forums[id] = beta_only
+	def get_last_page(link)
+		result = nil
+		
+		begin
+			@agent.get(link) do |page|
+				index = page.root.at_css('div.pagination').css('a').map(&:content).map(&:to_i).max
+				result = "/page/#{index}"
+			end
 			
-			#log "Found forum #{id} to be #{beta_only ? "beta members only" : "public"}"
+			result
+		rescue
+			""
 		end
 	end
-
+	
 	def refresh
 		@nicks.each_pair do |nick, current|
 			@agent.get("account/view-posts/#{nick}") do |page|
-				posts_reverse = page.root.at_css('table.post-list').css('tr').map do |row|
-					link = row.at_css('div.centered a')
-					forum, thread = link.parent.parent.children[-2, 2].map do |node|
-						node = node.at_css('a')
-						[node.content, node['href'].split('/').last.to_i]
-					end
-					link = link['href']
-					
-					{:link => link, :forum => forum, :thread => thread, :beta_only => beta_only?(forum.last)}
+				posts_reverse = page.root.at_css('table.forumPostListTable').css('tr').map do |row|
+					post = row.at_css('a.posted-by-link')['href']
+					rows = row.at_css('td.post_info').at_css('div').css('div')
+					thread_link = rows.last.at_css('a')
+					thread = thread_link.content
+					link = thread_link['href']
+					{:link => link, :post => post, :thread => thread}
 				end
 				
 				if current
@@ -64,7 +72,7 @@ class Posts < PoeBot::Plugin
 					notify_start = nil
 					
 					current.each do |current_post|
-						notify_start = posts.find_index { |post| post[:link] == current_post[:link] }
+						notify_start = posts.find_index { |post| post[:post] == current_post[:post] }
 						break if notify_start
 					end
 					
@@ -75,7 +83,7 @@ class Posts < PoeBot::Plugin
 					end
 					
 					posts[notify_start..-1].each do |post|
-						message = "#{nick} posted in '#{post[:thread].first}'#{" (beta forums)" if post[:beta_only]}: http://www.pathofexile.com#{post[:link]}"
+						message = "#{nick} posted in '#{post[:thread]}': http://www.pathofexile.com#{post[:link]}#{get_last_page(post[:link])}#{post[:post]}"
 						
 						dispatch(:update, message)
 					end
