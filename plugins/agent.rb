@@ -36,6 +36,12 @@ class Agent
 			block.call(page) if block
 		end
 	end
+	
+	def api(location, &block)
+		return @agent.get('http://api.pathofexile.com/' + location) do |page|
+			block.call(JSON.parse(page.body)) if block
+		end
+	end
 end
 
 class AgentFactory < PoeBot::Plugin

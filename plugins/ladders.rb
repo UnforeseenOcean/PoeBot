@@ -1,13 +1,15 @@
+require 'time'
 
 class Ladder
-	def initialize(name, top_number, plugin)
+	def initialize(name, ending, top_number, plugin)
 		@agent = plugin.plugin(:agent).generate
+		@ending = ending
 		@title = name
-		@url = "ladder/index/league/#{CGI::escape(name)}"
+		@url = "leagues/#{CGI::escape(name)}?ladder=1&ladderLimit=#{top_number}"
 		@data = nil
+		@top_number = top_number
 		@level = nil
 		@state = :unknown
-		@top_number = top_number
 		@plugin = plugin
 	end
 	
@@ -53,36 +55,22 @@ class Ladder
 		end
 	end
 	
+	def end_league
+		log("Turning off league #{@title}")
+		raise PoeBot::Plugin::ExitException
+	end
+	
 	def loop
 		sleep 180
 		
-		@agent.get(@url) do |page|
-			countdown = page.root.at_css('#leagueCountdownBox')
+		@agent.api(@url) do |ladder|
+			end_league if ladder['error']
 			
-			#<li id="leagueStatus" class="completeText">League has ended</li>
-			# <li>
-			# <span id="leagueBeginLabel" class="bright">Begun: </span>
-			# 20. august 2011 04.00
-			# </li>
-			# <li>
-			# <span id="leagueEndLabel" class="bright">Ended: </span>
-			# 20. august 2011 08.00
-			# </li>
-			
-			if countdown
-				unless countdown.at_css('div.inProgressText')
-					@state = :waiting
-					next
-				end
+			spots = ladder['ladder']['entries'].map do |entry|
+				{:rank => entry['rank'].to_i, :name => entry['character']['name'], :class => entry['character']['class'], :level => entry['character']['level'].to_i}
 			end
 			
-			spots = map_spots(page)[0...(@top_number)]
-			
 			if spots.empty?
-				if @state == :ended
-					log("Turning off league #{@title}")
-					raise PoeBot::Plugin::ExitException
-				end
 			else
 				if @data
 					notified = {}
@@ -92,8 +80,8 @@ class Ladder
 					leader = spots.first	
 					
 					if @level
-						if leader[:level] > @level
-							message("The leader #{leader[:name]}, is now level #{leader[:level]}.") if @level
+						if leader[:level] != @level
+							message("The leader #{leader[:name]}, is now level #{leader[:level]}.")
 							
 							@level = leader[:level]
 						end
@@ -140,13 +128,11 @@ class Ladder
 				end
 			end
 			
-			ending = page.root.at_css('#leagueEndLabel')
-			(ending = ending.content.strip == 'Ended:') if ending
+			ending = @ending && (Time.now > @ending)
 			
 			if ending && (@state != :ended)
 				if @state == :unknown
-					log("Turning off league #{@title}")
-					raise PoeBot::Plugin::ExitException
+					end_league
 				else
 					message("The race has ended.")
 				end
@@ -156,9 +142,14 @@ class Ladder
 				end
 				
 				@state = :ended
-				@ended = Time.now
+				@ended = Time.now + 300
 			end
 			
+			if (@state == :ended) && (Time.now > @ended)
+				log("Turning off league #{@title}")
+				raise PoeBot::Plugin::ExitException
+			end
+		
 			if @state == :unknown || @state == :waiting
 				if @state == :waiting
 					message("The race is on!")
@@ -173,17 +164,17 @@ end
 
 class Ladders < PoeBot::Plugin
 	uses :agent, :settings
-	
-	listen :command do |command, parameters|
+	if nil
+	listen :command do |command, source, parameters|
 		parameter_array = parameters.split(' ')
 		
 		case command
-			when "top"
-				league = find_league(parameters)
-				next unless league
+			#when "top"
+			#	league = find_league(parameters)
+			#	next unless league
 				
-				ladder = get_ladder(league)
-				ladder.message_spots(ladder.get_spots[0...10])
+			#	ladder = get_ladder(league)
+			#	ladder.message_spots(ladder.get_spots[0...10])
 				
 			when "leader"
 				league = find_league(parameters)
@@ -191,23 +182,23 @@ class Ladders < PoeBot::Plugin
 				
 				leader = get_ladder(league).get_spots.first
 				
-				dispatch(:say, "The leader in #{league} is #{leader[:name]} (a level #{leader[:level]} #{leader[:class]}).")
+				dispatch(:say, "The leader in #{league} is #{leader[:name]} (a level #{leader[:level]} #{leader[:class]}).", source)
 				
-			when "rank"
-				rank = parameter_array[0].to_i
-				league = find_league(parameter_array[1..-1].join(' '))
-				next unless league
+			#when "rank"
+			#	rank = parameter_array[0].to_i
+			#	league = find_league(parameter_array[1..-1].join(' '))
+			#	next unless league
 				
-				page = ((rank - 1) / 20) + 1
-				index = ((rank - 1) % 20)
+			#	page = ((rank - 1) / 20) + 1
+			#	index = ((rank - 1) % 20)
 				
-				player = get_ladder(league).get_spots(page)[index]
-				next unless player
+			#	player = get_ladder(league).get_spots(page)[index]
+			#	next unless player
 				
-				dispatch(:say, "Rank \##{rank} in #{league} is #{player[:name]} (a level #{player[:level]} #{player[:class]}).")
+			#	dispatch(:say, "Rank \##{rank} in #{league} is #{player[:name]} (a level #{player[:level]} #{player[:class]}).", source)
 		end
 	end
-	
+	end
 	def find_league(league)
 		@leagues.each_key do |key|
 			return key if league.downcase == key.downcase
@@ -219,9 +210,10 @@ class Ladders < PoeBot::Plugin
 		@leagues = {}
 		@top_number = plugin(:settings)['TopNumber']
 		@agent = plugin(:agent).generate
-		refresh_leagues(false)
 		
 		thread do
+			refresh_leagues(false)
+			
 			safe_loop do
 				sleep 600
 				
@@ -230,17 +222,18 @@ class Ladders < PoeBot::Plugin
 		end
 	end
 	
-	def get_ladder(name)
-		 Ladder.new(name, @top_number, self)
+	def get_ladder(ladder)
+		 Ladder.new(ladder['id'], ladder['endAt'] ? Time.parse(ladder['endAt']) : nil, @top_number, self)
 	end
 	
 	def refresh_leagues(fresh = true)
-		@agent.get("ladder/index/league") do |page|
-			page.root.at_css('select#league').css('option').each do |option|
-				name = option.content
+		@agent.api("leagues") do |ladders|
+			ladders.each do |ladder|
+				name = ladder['id']
 				unless @leagues.has_key?(name)
-					@leagues[name] = get_ladder(name).run
-					dispatch(:update, "A new league has been discovered: '#{name}'") if fresh
+					next if name == 'GGG Private'
+					@leagues[name] = get_ladder(ladder).run
+					dispatch(:update, "A new league has been discovered: '#{name}' - #{ladder['url']}") if fresh
 				end
 			end
 		end
